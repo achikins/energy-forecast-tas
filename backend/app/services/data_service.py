@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # ── Configuration ──────────────────────────────────────────────────────────────
 
 # How many days of history to keep in memory (7 days = ~2,016 5-min rows → ~336 hourly)
-HISTORY_DAYS = 7
+HISTORY_DAYS = 30
 
 # Re-fetch from AEMO every N seconds (1 hour)
 CACHE_TTL_SECONDS = 3600
