@@ -2,9 +2,9 @@
 Data service — fetches live TAS1 demand data from AEMO and caches it in memory.
 
 Strategy:
-  - Past completed months: AEMO monthly DISPATCHREGIONSUM archive ZIPs.
-  - Current (incomplete) month: scrape individual 5-min Dispatch_Reports files.
-  - Combine, resample to hourly, cache in-process.
+  - Use AEMO's Daily_Reports endpoint: one ZIP per day, covers ~60 days.
+  - Each file contains full 5-min DREGION data for TAS1.
+  - Fetch the last HISTORY_DAYS files, resample to hourly, cache in-process.
   - Refresh every CACHE_TTL_SECONDS via background task.
   - Fall back to bundled CSV if all AEMO fetches fail.
 """
@@ -29,15 +29,7 @@ logger = logging.getLogger(__name__)
 HISTORY_DAYS = 30
 CACHE_TTL_SECONDS = 3600
 
-# Monthly archive — only published once a month is fully complete
-ARCHIVE_URL = (
-    "https://nemweb.com.au/Data_Archive/Wholesale_Electricity/MMSDM/"
-    "{year}/MMSDM_{year}_{month:02d}/MMSDM_Historical_Data_SQLLoader/DATA/"
-    "PUBLIC_ARCHIVE%23DISPATCHREGIONSUM%23FILE01%23{year}{month:02d}010000.zip"
-)
-
-# Current-month 5-min dispatch files index (rolling ~2 days, updated every 5 min)
-DISPATCH_REPORTS_INDEX = "https://nemweb.com.au/Reports/Current/Dispatch_Reports/"
+DAILY_REPORTS_INDEX = "https://nemweb.com.au/Reports/Current/Daily_Reports/"
 
 # ── In-memory cache ────────────────────────────────────────────────────────────
 
@@ -48,7 +40,7 @@ _cached_at: datetime | None = None
 
 # ── AEMO fetch helpers ─────────────────────────────────────────────────────────
 
-def _fetch_zip_csv(url: str, timeout: int = 60) -> bytes | None:
+def _fetch_zip_csv(url: str, timeout: int = 30) -> bytes | None:
     """Download a ZIP from AEMO and return the first file's bytes."""
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -61,32 +53,11 @@ def _fetch_zip_csv(url: str, timeout: int = 60) -> bytes | None:
         return None
 
 
-def _parse_dispatchregionsum(csv_bytes: bytes) -> pd.DataFrame:
-    """Parse AEMO DISPATCHREGIONSUM archive CSV → clean TAS1 DataFrame."""
-    lines = csv_bytes.decode("utf-8", errors="replace").splitlines()
-    data_lines = [l for l in lines if l.startswith("D,DISPATCH,REGIONSUM")]
-    if not data_lines:
-        return pd.DataFrame()
-
-    header_lines = [l for l in lines if l.startswith("I,DISPATCH,REGIONSUM")]
-    cols = header_lines[0].split(",") if header_lines else None
-
-    df = pd.read_csv(io.StringIO("\n".join(data_lines)), header=None, names=cols)
-    df.columns = [str(c).strip().upper() for c in df.columns]
-    df = df[(df["REGIONID"] == "TAS1") & (df["INTERVENTION"] == 0)].copy()
-    if df.empty:
-        return pd.DataFrame()
-
-    df["timestamp"] = pd.to_datetime(df["SETTLEMENTDATE"], format="%Y/%m/%d %H:%M:%S")
-    df["demand_mw"] = pd.to_numeric(df["TOTALDEMAND"], errors="coerce")
-    df["region"] = "TAS"
-    return df[["timestamp", "demand_mw", "region"]].dropna()
-
-
-def _parse_dispatch_report(csv_bytes: bytes) -> pd.DataFrame:
+def _parse_daily_report(csv_bytes: bytes) -> pd.DataFrame:
     """
-    Parse a 5-min Dispatch_Reports file (DREGION table) → TAS1 demand row.
-    Column order: SETTLEMENTDATE, INTERVENTION, REGIONID, ..., TOTALDEMAND (index 8)
+    Parse a Daily_Reports file — extracts TAS1 demand from DREGION rows.
+    Column layout: row_type, table, sub, version, SETTLEMENTDATE, RUNNO,
+                   REGIONID, INTERVENTION, ..., TOTALDEMAND (index 12)
     """
     lines = csv_bytes.decode("utf-8", errors="replace").splitlines()
     data_lines = [l for l in lines if l.startswith("D,DREGION") and "TAS1" in l]
@@ -96,12 +67,12 @@ def _parse_dispatch_report(csv_bytes: bytes) -> pd.DataFrame:
     rows = []
     for line in data_lines:
         parts = line.split(",")
-        # Filter: intervention == 0
         try:
-            if parts[6] != "0" and parts[6] != "0.0":
+            # Skip intervention runs (col 7 == "1")
+            if parts[7].strip() not in ("0", "0.0"):
                 continue
             timestamp = pd.to_datetime(parts[4].strip('"'), format="%Y/%m/%d %H:%M:%S")
-            demand_mw = float(parts[8])
+            demand_mw = float(parts[13])
             rows.append({"timestamp": timestamp, "demand_mw": demand_mw, "region": "TAS"})
         except (IndexError, ValueError):
             continue
@@ -109,81 +80,53 @@ def _parse_dispatch_report(csv_bytes: bytes) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def _fetch_archive_month(year: int, month: int) -> pd.DataFrame:
-    """Fetch a completed month from the AEMO monthly archive."""
-    url = ARCHIVE_URL.format(year=year, month=month)
-    logger.info("Fetching AEMO archive %d-%02d", year, month)
-    csv_bytes = _fetch_zip_csv(url)
-    if csv_bytes is None:
-        return pd.DataFrame()
-    return _parse_dispatchregionsum(csv_bytes)
-
-
-def _fetch_current_month_dispatch() -> pd.DataFrame:
-    """
-    Scrape all 5-min Dispatch_Reports files from AEMO's rolling index.
-    Covers roughly the last 2 days (all that AEMO keeps in this endpoint).
-    """
-    logger.info("Fetching current-month dispatch files from Dispatch_Reports index")
-    try:
-        req = urllib.request.Request(
-            DISPATCH_REPORTS_INDEX, headers={"User-Agent": "Mozilla/5.0"}
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            index_html = resp.read().decode("utf-8", errors="replace")
-    except Exception as e:
-        logger.warning("Failed to fetch Dispatch_Reports index: %s", e)
-        return pd.DataFrame()
-
-    # Extract unique ZIP filenames
-    filenames = list(dict.fromkeys(
-        re.findall(r'PUBLIC_DISPATCH_\d+_\d+_LEGACY\.zip', index_html)
-    ))
-    logger.info("Found %d dispatch report files", len(filenames))
-
-    frames = []
-    for fname in filenames:
-        url = DISPATCH_REPORTS_INDEX + fname
-        csv_bytes = _fetch_zip_csv(url, timeout=15)
-        if csv_bytes:
-            df = _parse_dispatch_report(csv_bytes)
-            if not df.empty:
-                frames.append(df)
-
-    if not frames:
-        return pd.DataFrame()
-
-    combined = pd.concat(frames, ignore_index=True)
-    return combined.drop_duplicates("timestamp")
-
-
 def _fetch_live() -> pd.DataFrame | None:
     """
-    Fetch HISTORY_DAYS of TAS1 demand.
-    - Completed past months: monthly archive
-    - Current month: Dispatch_Reports 5-min files
+    Fetch the last HISTORY_DAYS of TAS1 demand from AEMO Daily_Reports.
+    One ZIP file per day — fast and reliable.
     """
+    # Get the index page
+    try:
+        req = urllib.request.Request(
+            DAILY_REPORTS_INDEX, headers={"User-Agent": "Mozilla/5.0"}
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            index_html = resp.read().decode("utf-8", errors="replace")
+    except Exception as e:
+        logger.warning("Failed to fetch Daily_Reports index: %s", e)
+        return None
+
+    # Parse all unique daily filenames and sort
+    # Format: PUBLIC_DAILY_YYYYMMDD0000_timestamp.zip
+    file_map: dict[str, str] = {}
+    for fname in re.findall(r'PUBLIC_DAILY_\d{12}_\d+\.zip', index_html):
+        day_key = fname[13:21]  # YYYYMMDD portion
+        file_map[day_key] = fname  # last one wins (latest version for that day)
+
+    if not file_map:
+        logger.warning("No files found in Daily_Reports index")
+        return None
+
+    # Select the last HISTORY_DAYS worth of files
     today = date.today()
+    cutoff = today - timedelta(days=HISTORY_DAYS)
+    selected = sorted(
+        [(day_key, fname) for day_key, fname in file_map.items()
+         if day_key >= cutoff.strftime("%Y%m%d")],
+        key=lambda x: x[0]
+    )
+
+    logger.info("Fetching %d daily AEMO files (last %d days)", len(selected), HISTORY_DAYS)
+
     frames = []
-
-    # Determine which months we need
-    months_needed: dict[tuple[int, int], bool] = {}  # (year, month) → is_current
-    for d in range(HISTORY_DAYS + 1):
-        day = today - timedelta(days=d)
-        key = (day.year, day.month)
-        is_current = (day.year == today.year and day.month == today.month)
-        # Mark as current if any day in that month is the current month
-        months_needed[key] = months_needed.get(key, False) or is_current
-
-    for (year, month), is_current in sorted(months_needed.items()):
-        if is_current:
-            # Use rolling 5-min dispatch files for current month
-            df = _fetch_current_month_dispatch()
-        else:
-            df = _fetch_archive_month(year, month)
-
-        if not df.empty:
-            frames.append(df)
+    for day_key, fname in selected:
+        url = DAILY_REPORTS_INDEX + fname
+        csv_bytes = _fetch_zip_csv(url)
+        if csv_bytes:
+            df = _parse_daily_report(csv_bytes)
+            if not df.empty:
+                frames.append(df)
+                logger.info("  %s: %d rows", day_key, len(df))
 
     if not frames:
         return None
@@ -191,11 +134,7 @@ def _fetch_live() -> pd.DataFrame | None:
     combined = pd.concat(frames, ignore_index=True)
     combined = combined.sort_values("timestamp").drop_duplicates("timestamp")
 
-    # Keep only the last HISTORY_DAYS
-    cutoff = pd.Timestamp(today - timedelta(days=HISTORY_DAYS))
-    combined = combined[combined["timestamp"] >= cutoff]
-
-    # Resample to hourly
+    # Resample 5-min → hourly
     combined = combined.set_index("timestamp")
     hourly = combined["demand_mw"].resample("h").mean().round(2).reset_index()
     hourly["region"] = "TAS"
