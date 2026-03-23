@@ -31,18 +31,21 @@ async def _background_refresh():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initial data load at startup (blocking so first request is never cold)
+    # Load data in background so the app binds to the port immediately.
+    # Render requires the port to be open within ~60s of startup.
+    task = asyncio.create_task(_background_refresh_once())
+    yield
+    task.cancel()
+
+
+async def _background_refresh_once():
+    """Load data once on startup, then keep refreshing every CACHE_TTL_SECONDS."""
     try:
         await asyncio.to_thread(refresh_data)
     except Exception as e:
         logger.error("Startup data load failed: %s", e)
-
-    # Launch hourly background refresh
-    task = asyncio.create_task(_background_refresh())
-
-    yield
-
-    task.cancel()
+    # Continue with periodic refresh
+    await _background_refresh()
 
 
 app = FastAPI(
