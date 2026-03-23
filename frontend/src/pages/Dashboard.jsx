@@ -6,6 +6,9 @@ import InsightsPanel from "../components/insights/InsightsPanel";
 import DecisionPanel from "../components/decision/DecisionPanel";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 import TasmaniaMap from "../components/map/TasmaniaMap";
+import AboutModal from "../components/layout/AboutModal";
+import WakeBanner from "../components/common/WakeBanner";
+import { useServerWake } from "../hooks/useServerWake";
 
 import { useHistoricalData } from "../hooks/useHistoricalData";
 import { useForecastData } from "../hooks/useForecastData";
@@ -67,9 +70,10 @@ function formatMW(val) {
 // ── Dashboard ────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [histHours, setHistHours]       = useState(168);   // historical window
-  const [forecastPeriods, setForecast]  = useState(48);    // forecast horizon
-  const [insightsHours, setInsights]    = useState(168);   // insights window
+  const [histHours, setHistHours]       = useState(168);
+  const [forecastPeriods, setForecast]  = useState(48);
+  const [insightsHours, setInsights]    = useState(168);
+  const [showAbout, setShowAbout]       = useState(false);
 
   const historical = useHistoricalData({ limit: histHours });
   const forecast   = useForecastData(forecastPeriods);
@@ -77,6 +81,7 @@ export default function Dashboard() {
   const decision   = useDecision();
 
   const anyLoading = historical.loading || forecast.loading || insights.loading;
+  const showWakeBanner = useServerWake(anyLoading);
 
   function refreshAll() {
     historical.refetch();
@@ -89,7 +94,18 @@ export default function Dashboard() {
     <div className="layout">
       <Header onRefresh={refreshAll} refreshing={anyLoading} />
 
+      {/* ── Floating About button ── */}
+      <button className="about-fab" onClick={() => setShowAbout(true)} title="About this project">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/>
+        </svg>
+        <span>About</span>
+      </button>
+
       <main className="main-content">
+
+        {/* ── Cold start banner ── */}
+        {showWakeBanner && <WakeBanner />}
 
         {/* ── Controls bar ── */}
         <div className="controls-bar">
@@ -253,6 +269,8 @@ export default function Dashboard() {
             ) : null}
           </div>
         </div>
+
+      {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
 
         {/* ── Footer ── */}
         <div className="page-footer">

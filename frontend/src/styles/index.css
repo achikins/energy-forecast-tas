@@ -897,6 +897,42 @@ body {
   color: var(--accent-green);
 }
 
+/* ── Wake banner ──────────────────────────────────────────────────── */
+.wake-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: rgba(79, 142, 247, 0.07);
+  border: 1px solid rgba(79, 142, 247, 0.25);
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+  animation: fade-in 0.3s ease;
+}
+
+.wake-banner-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(79, 142, 247, 0.25);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.wake-banner-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-blue);
+  margin-bottom: 2px;
+}
+
+.wake-banner-body {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
 /* ── Data source badge ────────────────────────────────────────────── */
 .data-source-badge {
   display: flex;
@@ -911,26 +947,32 @@ body {
   cursor: default;
 }
 
-/* ── About button ─────────────────────────────────────────────────── */
-.about-btn {
+/* ── About FAB (floating action button) ──────────────────────────── */
+.about-fab {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 150;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  background: rgba(167, 139, 250, 0.1);
-  border: 1px solid rgba(167, 139, 250, 0.3);
-  color: var(--accent-purple);
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  gap: 8px;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  border: none;
+  color: #fff;
+  border-radius: 40px;
+  font-size: 14px;
+  font-weight: 600;
   font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(79, 142, 247, 0.45), 0 2px 8px rgba(0,0,0,0.4);
+  transition: transform 0.15s, box-shadow 0.15s;
+  letter-spacing: -0.01em;
 }
 
-.about-btn:hover {
-  background: rgba(167, 139, 250, 0.2);
-  border-color: var(--accent-purple);
+.about-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(79, 142, 247, 0.55), 0 4px 12px rgba(0,0,0,0.4);
 }
 
 /* ── Modal backdrop ───────────────────────────────────────────────── */

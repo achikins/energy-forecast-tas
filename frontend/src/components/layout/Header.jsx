@@ -43,17 +43,6 @@ export default function Header({ onRefresh, refreshing }) {
             {refreshing ? "Loading…" : "Refresh"}
           </button>
 
-          {/* About button */}
-          <button
-            className="about-btn"
-            onClick={() => setShowAbout(true)}
-            title="About this project"
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/>
-            </svg>
-            About
-          </button>
         </div>
       </header>
 
