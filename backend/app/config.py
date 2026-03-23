@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     # Forecasting
     forecast_periods: int = 48  # default hours to forecast ahead
 
+    # Set to true to skip live AEMO fetch and always use the bundled CSV
+    use_csv_only: bool = False
+
     class Config:
         env_file = ".env"
 

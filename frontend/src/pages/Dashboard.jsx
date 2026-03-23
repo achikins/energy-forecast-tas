@@ -3,12 +3,14 @@ import { useState } from "react";
 import Header from "../components/layout/Header";
 import DemandChart from "../components/charts/DemandChart";
 import InsightsPanel from "../components/insights/InsightsPanel";
+import DecisionPanel from "../components/decision/DecisionPanel";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 import TasmaniaMap from "../components/map/TasmaniaMap";
 
 import { useHistoricalData } from "../hooks/useHistoricalData";
 import { useForecastData } from "../hooks/useForecastData";
 import { useInsights } from "../hooks/useInsights";
+import { useDecision } from "../hooks/useDecision";
 
 // ── Control options ──────────────────────────────────────────────────────────
 
@@ -72,6 +74,7 @@ export default function Dashboard() {
   const historical = useHistoricalData({ limit: histHours });
   const forecast   = useForecastData(forecastPeriods);
   const insights   = useInsights(insightsHours);
+  const decision   = useDecision();
 
   const anyLoading = historical.loading || forecast.loading || insights.loading;
 
@@ -79,6 +82,7 @@ export default function Dashboard() {
     historical.refetch();
     forecast.refetch();
     insights.refetch();
+    decision.refetch();
   }
 
   return (
@@ -124,6 +128,19 @@ export default function Dashboard() {
           error={insights.error}
           onRetry={insights.refetch}
         />
+
+        {/* ── Energy Decision Layer ── */}
+        <div className="section-header" style={{ marginTop: 8 }}>
+          <span className="section-title">Energy Decision Layer · Next 48h</span>
+        </div>
+        <div className="card" style={{ marginBottom: 24 }}>
+          <DecisionPanel
+            data={decision.data}
+            loading={decision.loading}
+            error={decision.error}
+            onRetry={decision.refetch}
+          />
+        </div>
 
         {/* ── Chart ── */}
         <div className="chart-card">

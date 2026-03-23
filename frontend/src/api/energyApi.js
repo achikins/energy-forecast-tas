@@ -45,3 +45,10 @@ export function fetchForecast(periods = 48) {
 export function fetchInsights(hours = 168) {
   return get(`/insights?hours=${hours}`);
 }
+
+/**
+ * Fetch the Energy Decision Layer — best usage windows and peak generation hours.
+ */
+export function fetchDecision() {
+  return get("/decision");
+}

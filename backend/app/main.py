@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import historical, forecast, insights
+from app.routers import historical, forecast, insights, decision
 from app.services.data_service import refresh_data, cache_age_seconds, CACHE_TTL_SECONDS
 
 logger = logging.getLogger(__name__)
@@ -64,6 +64,7 @@ API_PREFIX = "/api/v1"
 app.include_router(historical.router, prefix=API_PREFIX)
 app.include_router(forecast.router, prefix=API_PREFIX)
 app.include_router(insights.router, prefix=API_PREFIX)
+app.include_router(decision.router, prefix=API_PREFIX)
 
 
 @app.get("/health", tags=["meta"])

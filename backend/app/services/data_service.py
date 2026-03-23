@@ -158,16 +158,25 @@ def _load_csv_fallback() -> pd.DataFrame:
 def refresh_data() -> None:
     """Fetch fresh AEMO data and update the in-memory cache."""
     global _cached_df, _cached_at
-    logger.info("Refreshing AEMO data...")
-    df = _fetch_live()
 
-    if df is None or df.empty:
-        logger.warning("AEMO fetch returned no data — falling back to CSV.")
+    if settings.use_csv_only:
+        logger.info("CSV-only mode — skipping AEMO fetch.")
         try:
             df = _load_csv_fallback()
         except FileNotFoundError as e:
-            logger.error("Fallback CSV also unavailable: %s", e)
+            logger.error("CSV fallback unavailable: %s", e)
             return
+    else:
+        logger.info("Refreshing AEMO data...")
+        df = _fetch_live()
+
+        if df is None or df.empty:
+            logger.warning("AEMO fetch returned no data — falling back to CSV.")
+            try:
+                df = _load_csv_fallback()
+            except FileNotFoundError as e:
+                logger.error("Fallback CSV also unavailable: %s", e)
+                return
 
     with _cache_lock:
         _cached_df = df
